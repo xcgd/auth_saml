@@ -1,0 +1,7 @@
+*.pyc
+*.py~
+.project
+.directory
+.pydevproject
+i18n/fr.po~
+.idea
