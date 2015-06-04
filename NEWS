@@ -1,6 +1,11 @@
 next
 ====
 
+* admin can have a password on top of saml connection.
+
+next
+====
+
 * Checks to ensure no Odoo user with SAML also has an Odoo password.
 * Setting to disable that rule.
 

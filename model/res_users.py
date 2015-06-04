@@ -28,7 +28,7 @@ class res_users(osv.Model):
         password.
         """
 
-        if self._allow_saml_uid_and_internal_password(cr, context):
+        if self._allow_saml_uid_and_internal_password(cr, uid, context):
             # The constraint is a no-op in this case.
             return True
 
@@ -212,7 +212,9 @@ class res_users(osv.Model):
             cr, uid, ids, vals, context=context
         )
 
-    def _allow_saml_uid_and_internal_password(self, cr, context):
+    def _allow_saml_uid_and_internal_password(self, cr, uid, context):
+        if uid == SUPERUSER_ID:
+            return true
         setting_obj = self.pool['base.config.settings']
         return setting_obj.allow_saml_uid_and_internal_password(
             cr, context=context
