@@ -205,7 +205,7 @@ class res_users(osv.Model):
         """
 
         if vals and vals.get('saml_uid'):
-            if not self._allow_saml_uid_and_internal_password(cr, context):
+            if not self._allow_saml_uid_and_internal_password(cr, uid, context):
                 vals['password'] = False
 
         return super(res_users, self).write(
