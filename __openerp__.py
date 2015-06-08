@@ -22,7 +22,7 @@
 
 {
     'name': 'Saml2 Authentication',
-    'version': '3.0',
+    'version': '3.1',
     'category': 'Tools',
     'description': """
 Allow users to login through Saml2 Provider.
