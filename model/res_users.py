@@ -214,7 +214,7 @@ class res_users(osv.Model):
 
     def _allow_saml_uid_and_internal_password(self, cr, uid, context):
         if uid == SUPERUSER_ID:
-            return true
+            return True
         setting_obj = self.pool['base.config.settings']
         return setting_obj.allow_saml_uid_and_internal_password(
             cr, context=context
