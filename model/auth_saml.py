@@ -29,6 +29,15 @@ class auth_saml_provider(osv.osv):
         )
         return lasso.Login(server)
 
+    def _get_matching_attr_for_provider(
+            self, cr, uid, provider_id, context=None
+    ):
+        """internal helper to fetch the matching attribute for this SAML
+        provider. Returns a unicode object.
+        """
+        provider = self.browse(cr, uid, provider_id, context=context)
+        return provider.matching_attribute
+
     def _get_auth_request(self, cr, uid, id_, state, context=None):
         """build an authentication request and give it back to our client
         WARNING: this method cannot be used for multiple ids
@@ -55,6 +64,7 @@ class auth_saml_provider(osv.osv):
         'sp_pkey': fields.text(
             'Private key of our service provider (this openerpserver)'
         ),
+        'matching_attribute': fields.text('Matching Attribute', required=True),
         'enabled': fields.boolean('Enabled'),
         'css_class': fields.char('CSS class'),
         'body': fields.char(
@@ -66,6 +76,7 @@ class auth_saml_provider(osv.osv):
 
     _defaults = {
         'enabled': False,
+        'matching_attribute': "subject.nameId",
         'css_class': 'zocial saml',
         'body': 'Authentic',
     }
