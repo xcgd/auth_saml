@@ -1,3 +1,4 @@
+# -*- encoding: utf-8 -*-
 from openerp.osv import fields
 from openerp.osv import osv
 import lasso
@@ -12,10 +13,12 @@ class auth_saml_provider(osv.osv):
     _order = 'name'
 
     def _get_lasso_for_provider(self, cr, uid, provider_id, context=None):
+        """internal helper to get a configured lasso.Login object for the
+        given provider id"""
         provider = self.browse(cr, uid, provider_id, context=context)
 
         # TODO: we should cache those results somewhere because it is
-        # really costy to always recreate a login variable from buffers
+        # really costly to always recreate a login variable from buffers
         server = lasso.Server.newFromBuffers(
             provider.sp_metadata,
             provider.sp_pkey
