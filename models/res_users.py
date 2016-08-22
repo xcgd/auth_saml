@@ -1,4 +1,5 @@
-# -*- encoding: utf-8 -*-
+# -*- coding: utf-8 -*-
+
 import logging
 # this is our very own dependency
 import lasso
@@ -6,20 +7,20 @@ import lasso
 import passlib
 
 import openerp
+from openerp import _
 from openerp import api
 from openerp import models
 from openerp import fields
 from openerp import SUPERUSER_ID
 from openerp.exceptions import ValidationError
-# import real addons name of base.res.res_users in order to call it without
-# user the super() call
-from openerp.addons.base.res.res_users import res_users as baseuser
-from openerp import _
 
 _logger = logging.getLogger(__name__)
 
 
-class res_users(models.Model):
+class ResUser(models.Model):
+    """Add SAML login capabilities to Odoo users.
+    """
+
     _inherit = 'res.users'
 
     saml_provider_id = fields.Many2one(
@@ -72,6 +73,7 @@ class res_users(models.Model):
         # we are not yet logged in, so the userid cannot have access to the
         # fields we need yet
         login = p.sudo()._get_lasso_for_provider()
+        matching_attribute = p._get_matching_attr_for_provider()
 
         try:
             login.processAuthnResponseMsg(token)
@@ -79,17 +81,76 @@ class res_users(models.Model):
             raise Exception('Lasso Profile cannot verify signature')
         except lasso.ProfileStatusNotSuccessError:
             raise Exception('Profile Status Not Success Error')
-        except lasso.Error, e:
+        except lasso.Error as e:
             raise Exception(repr(e))
 
         try:
             login.acceptSso()
-        except lasso.Error:
-            raise Exception('Invalid assertion')
+        except lasso.Error as error:
+            raise Exception(
+                'Invalid assertion : %s' % lasso.strError(error[0])
+            )
 
-        # TODO use a real token validation from LASSO
-        # TODO push into the validation result a real UPN
-        return {'user_id': login.assertion.subject.nameId.content}
+        attrs = {}
+
+        for att_statement in login.assertion.attributeStatement:
+            for attribute in att_statement.attribute:
+                name = None
+                lformat = lasso.SAML2_ATTRIBUTE_NAME_FORMAT_BASIC
+                nickname = None
+                try:
+                    name = attribute.name.decode('ascii')
+                except Exception as e:
+                    _logger.warning('sso_after_response: error decoding name of \
+                        attribute %s' % attribute.dump())
+                else:
+                    try:
+                        if attribute.nameFormat:
+                            lformat = attribute.nameFormat.decode('ascii')
+                        if attribute.friendlyName:
+                            nickname = attribute.friendlyName
+                    except Exception as e:
+                        message = 'sso_after_response: name or format of an \
+                            attribute failed to decode as ascii: %s due to %s'
+                        _logger.warning(message % (attribute.dump(), str(e)))
+                    try:
+                        if name:
+                            if lformat:
+                                if nickname:
+                                    key = (name, lformat, nickname)
+                                else:
+                                    key = (name, lformat)
+                            else:
+                                key = name
+                        attrs[key] = list()
+                        for value in attribute.attributeValue:
+                            content = [a.exportToXml() for a in value.any]
+                            content = ''.join(content)
+                            attrs[key].append(content.decode('utf8'))
+                    except Exception as e:
+                        message = 'sso_after_response: value of an \
+                            attribute failed to decode as ascii: %s due to %s'
+                        _logger.warning(message % (attribute.dump(), str(e)))
+
+        matching_value = None
+        for k in attrs:
+            if isinstance(k, tuple) and k[0] == matching_attribute:
+                matching_value = attrs[k][0]
+                break
+
+        if not matching_value and matching_attribute == "subject.nameId":
+            matching_value = login.assertion.subject.nameId.content
+
+        elif not matching_value and matching_attribute != "subject.nameId":
+            raise Exception(
+                "Matching attribute %s not found in user attrs: %s" % (
+                    matching_attribute,
+                    attrs,
+                )
+            )
+
+        validation = {'user_id': matching_value}
+        return validation
 
     @api.multi
     def _auth_saml_signin(self, provider, validation, saml_response):
@@ -163,31 +224,30 @@ class res_users(models.Model):
         # return user credentials
         return self.env.cr.dbname, login, saml_response
 
-    # This method is using the old v7 API because it is called BEFORE the login
-    def check_credentials(self, cr, uid, token):
-        """token can be a password if the user has used the normal form...
+    @api.model
+    def check_credentials(self, token):
+        """Override to handle SAML auths.
+
+        The token can be a password if the user has used the normal form...
         but we are more interested in the case when they are tokens
-        and the interesting code is inside the except clause
+        and the interesting code is inside the "except" clause.
         """
-        token_osv = self.pool.get('auth_saml.token')
 
         try:
-            baseuser.check_credentials(
-                self,
-                cr,
-                uid,
-                token
-            )
+            # Attempt a regular login (via other auth addons) first.
+            super(ResUser, self).check_credentials(token)
 
-        except (openerp.exceptions.AccessDenied, passlib.exc.PasswordSizeError):
+        except (
+            openerp.exceptions.AccessDenied,
+            passlib.exc.PasswordSizeError,
+        ):
             # since normal auth did not succeed we now try to find if the user
             # has an active token attached to his uid
-            res = token_osv.search(
-                cr, SUPERUSER_ID,
+            res = self.env['auth_saml.token'].sudo().search(
                 [
-                    ('user_id', '=', uid),
+                    ('user_id', '=', self.env.user.id),
                     ('saml_access_token', '=', token),
-                ]
+                ],
             )
 
             # if the user is not found we re-raise the AccessDenied
@@ -202,11 +262,21 @@ class res_users(models.Model):
         ID (as they can't cohabit).
         """
 
-        if vals and vals.get('saml_uid'):
-            if not self._allow_saml_and_password():
-                vals['password'] = False
+        # Clear out the pass when:
+        # - An SAML ID is being set.
+        # - The user is not the Odoo admin.
+        # - The "allow both" setting is disabled.
+        if (
+            vals and vals.get('saml_uid') and
+            self.id is not SUPERUSER_ID and
+            not self._allow_saml_and_password()
+        ):
+                vals.update({
+                    'password': False,
+                    'password_crypt': False,
+                })
 
-        return super(res_users, self).write(vals)
+        return super(ResUser, self).write(vals)
 
     @api.model
     def _allow_saml_and_password(self):

@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import functools
 import logging
 
@@ -5,6 +7,7 @@ import simplejson
 import werkzeug.utils
 
 import openerp
+from openerp import _
 from openerp import http
 from openerp.http import request
 from openerp import SUPERUSER_ID
@@ -42,6 +45,8 @@ def fragment_to_query_string(func):
 # ----------------------------------------------------------
 # Controller
 # ----------------------------------------------------------
+
+
 class SAMLLogin(openerp.addons.web.controllers.main.Home):
 
     def list_providers(self):
@@ -97,6 +102,12 @@ class SAMLLogin(openerp.addons.web.controllers.main.Home):
 class AuthSAMLController(http.Controller):
 
     def get_state(self, provider_id):
+        """Compute a state to be sent to the IDP so it can forward it back to
+        us.
+
+        :rtype: Dictionary.
+        """
+
         redirect = request.params.get('redirect') or 'web'
         if not redirect.startswith(('//', 'http://', 'https://')):
             redirect = '%s%s' % (
@@ -121,6 +132,9 @@ class AuthSAMLController(http.Controller):
         provider_osv = request.registry.get('auth.saml.provider')
 
         auth_request = None
+
+        # store a RelayState on the request to our IDP so that the IDP
+        # can send us back this info alongside the obtained token
         state = self.get_state(provider_id)
 
         try:
@@ -133,16 +147,7 @@ class AuthSAMLController(http.Controller):
 
         # TODO: handle case when auth_request comes back as None
 
-        # store a RelayState on the request to our IDP so that the IDP
-        # can send us back this info alongside the obtained token
-        params = {
-            "RelayState":  simplejson.dumps({
-                "d": request.session.db,
-                "p": pid,
-            }),
-        }
-        url = auth_request + "&" + werkzeug.url_encode(params)
-        redirect = werkzeug.utils.redirect(url, 303)
+        redirect = werkzeug.utils.redirect(auth_request, 303)
         redirect.autocorrect_location_header = True
         return redirect
 

@@ -1,11 +1,14 @@
-from openerp import models
-from openerp import api
-from openerp import fields
+# -*- coding: utf-8 -*-
+
 import lasso
 import simplejson
 
+from openerp import api
+from openerp import fields
+from openerp import models
 
-class auth_saml_provider(models.Model):
+
+class AuthSamlProvider(models.Model):
     """Class defining the configuration values of an Saml2 provider"""
 
     _name = 'auth.saml.provider'
@@ -14,10 +17,11 @@ class auth_saml_provider(models.Model):
 
     @api.multi
     def _get_lasso_for_provider(self):
-        # user is not connected yet... so use SUPERUSER_ID
+        """internal helper to get a configured lasso.Login object for the
+        given provider id"""
 
         # TODO: we should cache those results somewhere because it is
-        # really costy to always recreate a login variable from buffers
+        # really costly to always recreate a login variable from buffers
         server = lasso.Server.newFromBuffers(
             self.sp_metadata,
             self.sp_pkey
@@ -29,10 +33,22 @@ class auth_saml_provider(models.Model):
         return lasso.Login(server)
 
     @api.multi
+    def _get_matching_attr_for_provider(self):
+        """internal helper to fetch the matching attribute for this SAML
+        provider. Returns a unicode object.
+        """
+
+        self.ensure_one()
+
+        return self.matching_attribute
+
+    @api.multi
     def _get_auth_request(self, state):
         """build an authentication request and give it back to our client
-        WARNING: this method cannot be used for multiple ids
         """
+
+        self.ensure_one()
+
         login = self._get_lasso_for_provider()
 
         # ! -- this is the part that MUST be performed on each call and
@@ -53,6 +69,11 @@ class auth_saml_provider(models.Model):
     sp_metadata = fields.Text('SP Configuration')
     sp_pkey = fields.Text(
         'Private key of our service provider (this openerpserver)'
+    )
+    matching_attribute = fields.Text(
+        string='Matching Attribute',
+        default='subject.nameId',
+        required=True,
     )
     enabled = fields.Boolean('Enabled', default=False)
     sequence = fields.Integer('Sequence')
